@@ -43,7 +43,7 @@ function createDeck() {
         }
     }
     for (const value of WILD_VALUES) {
-        for (let i = 0;i < 4;i++) {
+        for (let i = 0; i < 4; i++) {
             deck.push({ color: "wild", value, id: `${value}_${i}` });
         }
     }
@@ -52,7 +52,7 @@ function createDeck() {
 
 function shuffle(arr) {
     const a = [...arr];
-    for (let i = a.length - 1;i > 0;i--) {
+    for (let i = a.length - 1; i > 0; i--) {
         const j = Math.floor(Math.random() * (i + 1));
         [a[i], a[j]] = [a[j], a[i]];
     }
@@ -191,7 +191,7 @@ function emitLobbyState(lobbyId, lobby) {
 
 function drawCards(lobby, userId, count) {
     const hand = lobby.hands.get(userId) ?? [];
-    for (let i = 0;i < count;i++) {
+    for (let i = 0; i < count; i++) {
         if (lobby.deck.length === 0) {
             const top = lobby.discardPile.pop();
             lobby.deck = shuffle(lobby.discardPile);
@@ -247,6 +247,37 @@ function computeFinalScores(lobby, winnerId) {
     return allEntries.map((e, i) => ({ ...e, rank: i + 1 }));
 }
 
+// ── Enregistrement des Attempts UNO en base ───────────────────────────────────
+async function saveUnoAttempts(finalScores) {
+    const frontendUrl = process.env.FRONTEND_URL;
+    const secret = process.env.INTERNAL_API_SECRET;
+    if (!frontendUrl || !secret) return;
+
+    // On ignore les joueurs anonymes (userId commençant par "anon_" ou sans cuid valide)
+    const results = finalScores
+        .filter(e => e.userId && e.userId.length > 8)
+        .map(e => ({
+            userId:    e.userId,
+            placement: e.rank,
+            score:     e.score,
+        }));
+
+    if (results.length === 0) return;
+
+    try {
+        await fetch(`${frontendUrl}/api/internal/uno-result`, {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json",
+                "x-internal-secret": secret,
+            },
+            body: JSON.stringify({ results }),
+        });
+    } catch (err) {
+        console.error("[UNO] saveUnoAttempts failed:", err);
+    }
+}
+
 function finishGame(lobbyId, lobby, winnerId) {
     clearInactivityTimer(lobby);
     const winner = lobby.players.find(p => p.userId === winnerId)
@@ -256,6 +287,9 @@ function finishGame(lobbyId, lobby, winnerId) {
     lobby.finalScores = computeFinalScores(lobby, winnerId);
     emitLobbyState(lobbyId, lobby);
     emitFinalState(lobbyId, lobby);
+
+    // ✅ Enregistrer les résultats en base
+    saveUnoAttempts(lobby.finalScores);
 }
 
 function checkWinner(lobbyId, lobby) {
@@ -422,7 +456,7 @@ io.on("connection", (socket) => {
         let lobby = lobbies.get(lobbyId);
         if (!lobby) {
             lobby = {
-                hostId: null,  // le premier uno:join définira le host
+                hostId: null,
                 status: "WAITING",
                 players: [],
                 spectators: [],
@@ -446,7 +480,7 @@ io.on("connection", (socket) => {
             lobbies.set(lobbyId, lobby);
         } else {
             if (lobby.status === "FINISHED" || lobby.status === "PLAYING") {
-                resetLobby(lobby, null, options);  // null = le premier join définira le host
+                resetLobby(lobby, null, options);
             } else {
                 if (options) lobby.options = options;
             }
@@ -461,7 +495,6 @@ io.on("connection", (socket) => {
 
         let lobby = lobbies.get(lobbyId);
         if (!lobby) {
-            // Lobby créé par un joueur arrivant directement sur la page
             lobby = {
                 hostId: userId,
                 status: "WAITING",
@@ -490,7 +523,6 @@ io.on("connection", (socket) => {
         if (!lobby.spectators) lobby.spectators = [];
         lobby.socketMap.set(userId, socket.id);
 
-        // Partie déjà en cours ou terminée → spectateur
         if (lobby.status === "PLAYING" || lobby.status === "FINISHED") {
             if (!lobby.spectators.find(s => s.userId === userId)) {
                 lobby.spectators.push({ userId, username });
