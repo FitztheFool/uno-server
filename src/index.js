@@ -72,6 +72,57 @@ function nextPlayerIndex(lobby, currentIndex, direction, skip = false) {
     return ((currentIndex + direction * step) % n + n) % n;
 }
 
+// ── 2v2 helpers ───────────────────────────────────────────────────────────────
+
+/**
+ * Assigne aléatoirement les équipes : team 0 et team 1 (2 joueurs chacune).
+ * Stocké dans lobby.teams : Map<userId, 0|1>
+ */
+function assignTeams(lobby) {
+    const players = shuffle([...lobby.players]);
+    lobby.teams = new Map();
+    for (let i = 0; i < players.length; i++) {
+        lobby.teams.set(players[i].userId, i < 2 ? 0 : 1);
+    }
+}
+
+function getTeammate(lobby, userId) {
+    if (!lobby.teams) return null;
+    const myTeam = lobby.teams.get(userId);
+    if (myTeam === undefined) return null;
+    return lobby.players.find(p => p.userId !== userId && lobby.teams.get(p.userId) === myTeam) ?? null;
+}
+
+function getTeamOf(lobby, userId) {
+    return lobby.teams?.get(userId) ?? null;
+}
+
+/**
+ * Vérifie si une équipe a gagné selon le mode de victoire.
+ * teamWinMode: "one" (un joueur vide) | "both" (les deux vident)
+ */
+function checkTeamWinner(lobby) {
+    if (!lobby.teams) return null;
+
+    for (const teamIdx of [0, 1]) {
+        const teamPlayers = lobby.players.filter(p => lobby.teams.get(p.userId) === teamIdx);
+        if (teamPlayers.length === 0) continue;
+
+        if (lobby.options.teamWinMode === "one") {
+            // Un seul joueur de l'équipe doit avoir vidé sa main
+            const winner = teamPlayers.find(p => (lobby.hands.get(p.userId) ?? []).length === 0);
+            if (winner) return winner.userId;
+        } else {
+            // "both" : tous les joueurs de l'équipe doivent avoir vidé leur main
+            const allEmpty = teamPlayers.every(p => (lobby.hands.get(p.userId) ?? []).length === 0);
+            if (allEmpty) return teamPlayers[0].userId; // premier joueur comme représentant
+        }
+    }
+    return null;
+}
+
+// ── State builders ────────────────────────────────────────────────────────────
+
 function emitGameState(lobbyId, lobby) {
     for (const player of lobby.players) {
         const socketId = lobby.socketMap.get(player.userId);
@@ -111,11 +162,24 @@ function emitFinalState(lobbyId, lobby) {
             options: lobby.options,
             isMyTurn: false,
             spectator: false,
+            teams: lobby.teams ? Object.fromEntries(lobby.teams) : null,
+            teammateHand: null,
         });
     }
 }
 
 function buildStateFor(lobby, userId) {
+    // En mode 2v2, inclure les cartes du coéquipier
+    let teammateHand = null;
+    let teammateId = null;
+    if (lobby.options.teamMode === "2v2" && lobby.teams) {
+        const teammate = getTeammate(lobby, userId);
+        if (teammate) {
+            teammateId = teammate.userId;
+            teammateHand = lobby.hands.get(teammate.userId) ?? [];
+        }
+    }
+
     return {
         hand: lobby.hands.get(userId) ?? [],
         currentColor: lobby.currentColor,
@@ -126,6 +190,7 @@ function buildStateFor(lobby, userId) {
             username: p.username,
             cardCount: (lobby.hands.get(p.userId) ?? []).length,
             saidUno: lobby.saidUno.has(p.userId),
+            team: lobby.teams?.get(p.userId) ?? null,
         })),
         direction: lobby.direction,
         drawStack: lobby.drawStack,
@@ -135,6 +200,10 @@ function buildStateFor(lobby, userId) {
         options: lobby.options,
         isMyTurn: lobby.players[lobby.currentPlayerIndex]?.userId === userId,
         spectator: false,
+        teams: lobby.teams ? Object.fromEntries(lobby.teams) : null,
+        teammateHand,
+        teammateId,
+        myTeam: getTeamOf(lobby, userId),
     };
 }
 
@@ -149,6 +218,7 @@ function buildSpectatorState(lobby) {
             username: p.username,
             cardCount: (lobby.hands.get(p.userId) ?? []).length,
             saidUno: lobby.saidUno.has(p.userId),
+            team: lobby.teams?.get(p.userId) ?? null,
         })),
         direction: lobby.direction,
         drawStack: lobby.drawStack,
@@ -158,6 +228,10 @@ function buildSpectatorState(lobby) {
         options: lobby.options,
         isMyTurn: false,
         spectator: true,
+        teams: lobby.teams ? Object.fromEntries(lobby.teams) : null,
+        teammateHand: null,
+        teammateId: null,
+        myTeam: null,
     };
 }
 
@@ -171,12 +245,14 @@ function buildPublicState(lobby) {
             username: p.username,
             cardCount: (lobby.hands.get(p.userId) ?? []).length,
             saidUno: lobby.saidUno.has(p.userId),
+            team: lobby.teams?.get(p.userId) ?? null,
         })),
         direction: lobby.direction,
         drawStack: lobby.drawStack,
         status: lobby.status,
         winner: lobby.winner ?? null,
         options: lobby.options,
+        teams: lobby.teams ? Object.fromEntries(lobby.teams) : null,
     };
 }
 
@@ -186,8 +262,11 @@ function emitLobbyState(lobbyId, lobby) {
         status: lobby.status,
         players: lobby.players,
         options: lobby.options,
+        teams: lobby.teams ? Object.fromEntries(lobby.teams) : null,
     });
 }
+
+// ── Game logic ────────────────────────────────────────────────────────────────
 
 function drawCards(lobby, userId, count) {
     const hand = lobby.hands.get(userId) ?? [];
@@ -205,6 +284,8 @@ function drawCards(lobby, userId, count) {
 
 function computeFinalScores(lobby, winnerId) {
     const allEntries = [];
+    const is2v2 = lobby.options.teamMode === "2v2" && lobby.teams;
+    const winnerTeam = is2v2 ? lobby.teams.get(winnerId) : null;
 
     for (const player of lobby.players) {
         const hand = lobby.hands.get(player.userId) ?? [];
@@ -216,6 +297,7 @@ function computeFinalScores(lobby, winnerId) {
             pointsInHand: pts,
             score: 0,
             kicked: false,
+            team: lobby.teams?.get(player.userId) ?? null,
         });
     }
 
@@ -227,33 +309,54 @@ function computeFinalScores(lobby, winnerId) {
             pointsInHand: kicked.pointsInHand,
             score: 0,
             kicked: true,
+            team: lobby.teams?.get(kicked.userId) ?? null,
         });
     }
 
-    const totalOpponentPoints = allEntries
-        .filter(e => e.userId !== winnerId)
-        .reduce((sum, e) => sum + e.pointsInHand, 0);
+    if (is2v2) {
+        // En 2v2 : l'équipe gagnante reçoit la somme des points de l'équipe adverse
+        const losingTeamPoints = allEntries
+            .filter(e => lobby.teams.get(e.userId) !== winnerTeam)
+            .reduce((sum, e) => sum + e.pointsInHand, 0);
 
-    const winner = allEntries.find(e => e.userId === winnerId);
-    if (winner) winner.score = totalOpponentPoints;
+        for (const e of allEntries) {
+            if (lobby.teams.get(e.userId) === winnerTeam) {
+                e.score = losingTeamPoints;
+            }
+        }
 
-    allEntries.sort((a, b) => {
-        if (a.userId === winnerId) return -1;
-        if (b.userId === winnerId) return 1;
-        if (a.kicked !== b.kicked) return a.kicked ? 1 : -1;
-        return a.pointsInHand - b.pointsInHand;
-    });
+        // Tri : équipe gagnante d'abord, puis par points en main croissants
+        allEntries.sort((a, b) => {
+            const aWins = lobby.teams.get(a.userId) === winnerTeam;
+            const bWins = lobby.teams.get(b.userId) === winnerTeam;
+            if (aWins !== bWins) return aWins ? -1 : 1;
+            if (a.kicked !== b.kicked) return a.kicked ? 1 : -1;
+            return a.pointsInHand - b.pointsInHand;
+        });
+    } else {
+        // Mode classique
+        const totalOpponentPoints = allEntries
+            .filter(e => e.userId !== winnerId)
+            .reduce((sum, e) => sum + e.pointsInHand, 0);
+        const winner = allEntries.find(e => e.userId === winnerId);
+        if (winner) winner.score = totalOpponentPoints;
+
+        allEntries.sort((a, b) => {
+            if (a.userId === winnerId) return -1;
+            if (b.userId === winnerId) return 1;
+            if (a.kicked !== b.kicked) return a.kicked ? 1 : -1;
+            return a.pointsInHand - b.pointsInHand;
+        });
+    }
 
     return allEntries.map((e, i) => ({ ...e, rank: i + 1 }));
 }
 
-// ── Enregistrement des Attempts UNO en base ───────────────────────────────────
 async function saveUnoAttempts(finalScores) {
     const frontendUrl = process.env.FRONTEND_URL;
     const secret = process.env.INTERNAL_API_SECRET;
     if (!frontendUrl || !secret) return;
 
-    // On ignore les joueurs anonymes (userId commençant par "anon_" ou sans cuid valide)
     const results = finalScores
         .filter(e => e.userId && e.userId.length > 8)
         .map(e => ({
@@ -287,12 +390,20 @@ function finishGame(lobbyId, lobby, winnerId) {
     lobby.finalScores = computeFinalScores(lobby, winnerId);
     emitLobbyState(lobbyId, lobby);
     emitFinalState(lobbyId, lobby);
-
-    // ✅ Enregistrer les résultats en base
     saveUnoAttempts(lobby.finalScores);
 }
 
 function checkWinner(lobbyId, lobby) {
+    if (lobby.options.teamMode === "2v2" && lobby.teams) {
+        const winnerId = checkTeamWinner(lobby);
+        if (winnerId) {
+            finishGame(lobbyId, lobby, winnerId);
+            return true;
+        }
+        return false;
+    }
+
+    // Mode classique
     for (const [userId, hand] of lobby.hands) {
         if (hand.length === 0) {
             finishGame(lobbyId, lobby, userId);
@@ -366,12 +477,16 @@ function resetLobby(lobby, hostId, options) {
     lobby.finalScores = null;
     lobby.kickedPlayers = [];
     lobby.expectedCount = null;
+    lobby.teams = null;
     if (options) lobby.options = options;
 }
 
 function startGame(lobbyId, lobby) {
     if (lobby.status !== "WAITING") return;
     if (lobby.players.length < 2) return;
+
+    // En mode 2v2, il faut exactement 4 joueurs
+    if (lobby.options.teamMode === "2v2" && lobby.players.length !== 4) return;
 
     lobby.deck = createDeck();
     lobby.hands = new Map();
@@ -384,6 +499,16 @@ function startGame(lobbyId, lobby) {
     lobby.finalScores = null;
     lobby.kickedPlayers = [];
     lobby.status = "PLAYING";
+    lobby.teams = null;
+
+    // Assigner les équipes si mode 2v2
+    if (lobby.options.teamMode === "2v2") {
+        if (lobby.preAssignedTeams && lobby.preAssignedTeams.size === lobby.players.length) {
+            lobby.teams = new Map(lobby.preAssignedTeams);
+        } else {
+            assignTeams(lobby);
+        }
+    }
 
     for (const p of lobby.players) {
         drawCards(lobby, p.userId, STARTING_HAND);
@@ -449,11 +574,28 @@ function handleLeave(lobbyId, userId, isKick = false) {
     emitLobbyState(lobbyId, lobby);
 }
 
+// ── Socket events ─────────────────────────────────────────────────────────────
+
 io.on("connection", (socket) => {
 
-    socket.on("uno:configure", ({ lobbyId, options, expectedCount }) => {
+    socket.on("uno:configure", ({ lobbyId, options, expectedCount, preAssignedTeams }) => {
         if (!lobbyId) return;
         let lobby = lobbies.get(lobbyId);
+
+        // Options par défaut avec les nouveaux champs 2v2
+        const defaultOptions = {
+            stackable: false,
+            jumpIn: false,
+            teamMode: "none",       // "none" | "2v2"
+            teamWinMode: "one",     // "one" | "both"
+        };
+        const mergedOptions = { ...defaultOptions, ...(options ?? {}) };
+
+        // Convertir les équipes pré-assignées en Map
+        const teamsMap = preAssignedTeams
+            ? new Map(Object.entries(preAssignedTeams).map(([k, v]) => [k, Number(v)]))
+            : null;
+
         if (!lobby) {
             lobby = {
                 hostId: null,
@@ -469,22 +611,25 @@ io.on("connection", (socket) => {
                 drawStack: 0,
                 saidUno: new Set(),
                 socketMap: new Map(),
-                options: options ?? { stackable: false, jumpIn: false },
+                options: mergedOptions,
                 winner: null,
                 finalScores: null,
                 kickedPlayers: [],
                 expectedCount: expectedCount ?? null,
                 inactivityWarning: null,
                 inactivityKick: null,
+                teams: null,
+                preAssignedTeams: teamsMap,
             };
             lobbies.set(lobbyId, lobby);
         } else {
             if (lobby.status === "FINISHED" || lobby.status === "PLAYING") {
-                resetLobby(lobby, null, options);
+                resetLobby(lobby, null, mergedOptions);
             } else {
-                if (options) lobby.options = options;
+                lobby.options = mergedOptions;
             }
             if (expectedCount) lobby.expectedCount = expectedCount;
+            if (teamsMap) lobby.preAssignedTeams = teamsMap;
         }
     });
 
@@ -509,13 +654,14 @@ io.on("connection", (socket) => {
                 drawStack: 0,
                 saidUno: new Set(),
                 socketMap: new Map(),
-                options: { stackable: false, jumpIn: false },
+                options: { stackable: false, jumpIn: false, teamMode: "none", teamWinMode: "one" },
                 winner: null,
                 finalScores: null,
                 kickedPlayers: [],
                 expectedCount: null,
                 inactivityWarning: null,
                 inactivityKick: null,
+                teams: null,
             };
             lobbies.set(lobbyId, lobby);
         }
@@ -538,7 +684,9 @@ io.on("connection", (socket) => {
 
         emitLobbyState(lobbyId, lobby);
 
-        if (lobby.expectedCount && lobby.players.length >= lobby.expectedCount) {
+        // En mode 2v2 : lancer quand 4 joueurs
+        const requiredPlayers = lobby.options.teamMode === "2v2" ? 4 : (lobby.expectedCount ?? 2);
+        if (lobby.players.length >= requiredPlayers) {
             startGame(lobbyId, lobby);
         }
     });
@@ -680,6 +828,7 @@ io.on("connection", (socket) => {
         lobby.discardPile = [];
         lobby.saidUno = new Set();
         lobby.drawStack = 0;
+        lobby.teams = null;
         emitLobbyState(lobbyId, lobby);
     });
 
