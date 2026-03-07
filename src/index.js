@@ -43,7 +43,7 @@ function createDeck() {
         }
     }
     for (const value of WILD_VALUES) {
-        for (let i = 0; i < 4; i++) {
+        for (let i = 0;i < 4;i++) {
             deck.push({ color: "wild", value, id: `${value}_${i}` });
         }
     }
@@ -52,7 +52,7 @@ function createDeck() {
 
 function shuffle(arr) {
     const a = [...arr];
-    for (let i = a.length - 1; i > 0; i--) {
+    for (let i = a.length - 1;i > 0;i--) {
         const j = Math.floor(Math.random() * (i + 1));
         [a[i], a[j]] = [a[j], a[i]];
     }
@@ -81,7 +81,7 @@ function nextPlayerIndex(lobby, currentIndex, direction, skip = false) {
 function assignTeams(lobby) {
     const players = shuffle([...lobby.players]);
     lobby.teams = new Map();
-    for (let i = 0; i < players.length; i++) {
+    for (let i = 0;i < players.length;i++) {
         lobby.teams.set(players[i].userId, i < 2 ? 0 : 1);
     }
 }
@@ -270,7 +270,7 @@ function emitLobbyState(lobbyId, lobby) {
 
 function drawCards(lobby, userId, count) {
     const hand = lobby.hands.get(userId) ?? [];
-    for (let i = 0; i < count; i++) {
+    for (let i = 0;i < count;i++) {
         if (lobby.deck.length === 0) {
             const top = lobby.discardPile.pop();
             lobby.deck = shuffle(lobby.discardPile);
@@ -360,9 +360,9 @@ async function saveUnoAttempts(finalScores) {
     const results = finalScores
         .filter(e => e.userId && e.userId.length > 8)
         .map(e => ({
-            userId:    e.userId,
+            userId: e.userId,
             placement: e.rank,
-            score:     e.score,
+            score: e.score,
         }));
 
     if (results.length === 0) return;
@@ -764,6 +764,11 @@ io.on("connection", (socket) => {
             }
         } else {
             lobby.currentPlayerIndex = nextPlayerIndex(lobby, curIdx, lobby.direction);
+        }
+        // Pénalité auto si le joueur passe à 1 carte sans avoir dit UNO
+        if (hand.length === 1 && !lobby.saidUno.has(userId)) {
+            drawCards(lobby, userId, UNO_PENALTY);
+            io.to(`uno:${lobbyId}`).emit("uno:penaltyApplied", { targetId: userId, reason: "forgot_uno", cards: UNO_PENALTY });
         }
 
         startInactivityTimer(lobbyId, lobby);
