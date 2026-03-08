@@ -668,8 +668,11 @@ io.on("connection", (socket) => {
 
         if (!lobby.spectators) lobby.spectators = [];
         lobby.socketMap.set(userId, socket.id);
+        if (!lobby.hostId) lobby.hostId = userId;
 
-        if (lobby.status === "PLAYING" || lobby.status === "FINISHED") {
+        // ── CHANGED: ne mettre en spectateur que si la partie est FINIE
+        // ou si le joueur n'est pas dans la liste attendue
+        if (lobby.status === "FINISHED") {
             if (!lobby.spectators.find(s => s.userId === userId)) {
                 lobby.spectators.push({ userId, username });
             }
@@ -678,13 +681,31 @@ io.on("connection", (socket) => {
             return;
         }
 
+        if (lobby.status === "PLAYING") {
+            // Vérifier si ce joueur était attendu (reconnexion)
+            const isExpectedPlayer = lobby.players.find(p => p.userId === userId);
+            if (isExpectedPlayer) {
+                // Reconnexion : juste mettre à jour le socketId
+                emitGameState(lobbyId, lobby);
+                emitLobbyState(lobbyId, lobby);
+                return;
+            }
+            // Vraiment un nouveau joueur arrivé en cours de partie → spectateur
+            if (!lobby.spectators.find(s => s.userId === userId)) {
+                lobby.spectators.push({ userId, username });
+            }
+            socket.emit("uno:state", buildSpectatorState(lobby));
+            emitLobbyState(lobbyId, lobby);
+            return;
+        }
+
+        // Status WAITING
         if (!lobby.players.find(p => p.userId === userId)) {
             lobby.players.push({ userId, username });
         }
 
         emitLobbyState(lobbyId, lobby);
 
-        // En mode 2v2 : lancer quand 4 joueurs
         const requiredPlayers = lobby.options.teamMode === "2v2" ? 4 : (lobby.expectedCount ?? 2);
         if (lobby.players.length >= requiredPlayers) {
             startGame(lobbyId, lobby);
