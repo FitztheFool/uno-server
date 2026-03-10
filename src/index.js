@@ -577,21 +577,20 @@ function handleLeave(lobbyId, userId, isKick = false) {
 // ── Socket events ─────────────────────────────────────────────────────────────
 
 io.on("connection", (socket) => {
+    console.log("nouvelle connexion uno", socket.id);
 
     socket.on("uno:configure", ({ lobbyId, options, expectedCount, preAssignedTeams }) => {
         if (!lobbyId) return;
         let lobby = lobbies.get(lobbyId);
 
-        // Options par défaut avec les nouveaux champs 2v2
         const defaultOptions = {
             stackable: false,
             jumpIn: false,
-            teamMode: "none",       // "none" | "2v2"
-            teamWinMode: "one",     // "one" | "both"
+            teamMode: "none",
+            teamWinMode: "one",
         };
         const mergedOptions = { ...defaultOptions, ...(options ?? {}) };
 
-        // Convertir les équipes pré-assignées en Map
         const teamsMap = preAssignedTeams
             ? new Map(Object.entries(preAssignedTeams).map(([k, v]) => [k, Number(v)]))
             : null;
@@ -630,6 +629,16 @@ io.on("connection", (socket) => {
             }
             if (expectedCount) lobby.expectedCount = expectedCount;
             if (teamsMap) lobby.preAssignedTeams = teamsMap;
+        }
+
+        io.to(`uno:${lobbyId}`).emit("uno:ready", { lobbyId });
+
+        // Tenter de démarrer si des joueurs sont déjà arrivés avant configure
+        if (lobby.status === "WAITING" && lobby.players.length > 0) {
+            const required = mergedOptions.teamMode === "2v2" ? 4 : (expectedCount ?? 2);
+            if (lobby.players.length >= required) {
+                startGame(lobbyId, lobby);
+            }
         }
     });
 
@@ -670,8 +679,6 @@ io.on("connection", (socket) => {
         lobby.socketMap.set(userId, socket.id);
         if (!lobby.hostId) lobby.hostId = userId;
 
-        // ── CHANGED: ne mettre en spectateur que si la partie est FINIE
-        // ou si le joueur n'est pas dans la liste attendue
         if (lobby.status === "FINISHED") {
             if (!lobby.spectators.find(s => s.userId === userId)) {
                 lobby.spectators.push({ userId, username });
@@ -682,15 +689,12 @@ io.on("connection", (socket) => {
         }
 
         if (lobby.status === "PLAYING") {
-            // Vérifier si ce joueur était attendu (reconnexion)
             const isExpectedPlayer = lobby.players.find(p => p.userId === userId);
             if (isExpectedPlayer) {
-                // Reconnexion : juste mettre à jour le socketId
                 emitGameState(lobbyId, lobby);
                 emitLobbyState(lobbyId, lobby);
                 return;
             }
-            // Vraiment un nouveau joueur arrivé en cours de partie → spectateur
             if (!lobby.spectators.find(s => s.userId === userId)) {
                 lobby.spectators.push({ userId, username });
             }
@@ -706,9 +710,12 @@ io.on("connection", (socket) => {
 
         emitLobbyState(lobbyId, lobby);
 
-        const requiredPlayers = lobby.options.teamMode === "2v2" ? 4 : (lobby.expectedCount ?? 2);
-        if (lobby.players.length >= requiredPlayers) {
-            startGame(lobbyId, lobby);
+        // Ne démarrer que si expectedCount est connu (uno:configure déjà reçu)
+        if (lobby.expectedCount !== null) {
+            const requiredPlayers = lobby.options.teamMode === "2v2" ? 4 : lobby.expectedCount;
+            if (lobby.players.length >= requiredPlayers) {
+                startGame(lobbyId, lobby);
+            }
         }
     });
 
