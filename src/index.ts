@@ -1,7 +1,7 @@
-// uno-server/src/index.js
-const express = require("express");
-const http = require("http");
-const { Server } = require("socket.io");
+// uno-server/src/index.ts
+import express from "express";
+import http from "http";
+import { Server } from "socket.io";
 
 const app = express();
 app.get("/health", (req, res) => res.status(200).send("ok"));
@@ -878,4 +878,4 @@ io.on("connection", (socket) => {
 });
 
 const PORT = process.env.PORT || 10001;
-server.listen(PORT, () => console.log("UNO realtime listening on", PORT));
+server.listen(PORT, () => console.log("[UNO] realtime listening on", PORT));
