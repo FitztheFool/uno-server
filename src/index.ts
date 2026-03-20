@@ -1,3 +1,4 @@
+import 'dotenv/config';
 // uno-server/src/index.ts
 import express from "express";
 import http from "http";
@@ -353,33 +354,29 @@ function computeFinalScores(lobby, winnerId) {
     return allEntries.map((e, i) => ({ ...e, rank: i + 1 }));
 }
 
-async function saveUnoAttempts(finalScores) {
+async function saveAttempts(gameType, gameId, scores) {
     const frontendUrl = process.env.FRONTEND_URL;
-    const secret = process.env.INTERNAL_API_SECRET;
+    const secret = process.env.INTERNAL_API_KEY;
     if (!frontendUrl || !secret) return;
-
-    const results = finalScores
-        .filter(e => e.userId && e.userId.length > 8)
-        .map(e => ({
-            userId: e.userId,
-            placement: e.rank,
-            score: e.score,
-        }));
-
-    if (results.length === 0) return;
-
     try {
-        await fetch(`${frontendUrl}/api/internal/uno-result`, {
+        const res = await fetch(`${frontendUrl}/api/attempts`, {
             method: "POST",
-            headers: {
-                "Content-Type": "application/json",
-                "x-internal-secret": secret,
-            },
-            body: JSON.stringify({ results }),
+            headers: { "Content-Type": "application/json", "Authorization": `Bearer ${secret}` },
+            body: JSON.stringify({ gameType, gameId, scores }),
         });
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        console.log(`[${gameType}] scores saved for ${gameId}`);
     } catch (err) {
-        console.error("[UNO] saveUnoAttempts failed:", err);
+        console.error(`[${gameType}] saveAttempts error:`, err);
     }
+}
+
+async function saveUnoAttempts(lobbyId, finalScores) {
+    const scores = finalScores
+        .filter(e => e.userId && e.userId.length > 8)
+        .map(e => ({ userId: e.userId, score: e.score, placement: e.rank }));
+    if (scores.length === 0) return;
+    await saveAttempts("UNO", lobbyId, scores);
 }
 
 function finishGame(lobbyId, lobby, winnerId) {
@@ -391,7 +388,7 @@ function finishGame(lobbyId, lobby, winnerId) {
     lobby.finalScores = computeFinalScores(lobby, winnerId);
     emitLobbyState(lobbyId, lobby);
     emitFinalState(lobbyId, lobby);
-    saveUnoAttempts(lobby.finalScores);
+    saveUnoAttempts(lobbyId, lobby.finalScores);
 }
 
 function checkWinner(lobbyId, lobby) {
