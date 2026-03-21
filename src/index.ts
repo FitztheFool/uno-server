@@ -577,7 +577,7 @@ function handleLeave(lobbyId, userId, isKick = false) {
 io.on("connection", (socket) => {
     console.log("nouvelle connexion uno", socket.id);
 
-    socket.on("uno:configure", ({ lobbyId, options, expectedCount, preAssignedTeams }) => {
+    socket.on("uno:configure", ({ lobbyId, options, expectedCount, preAssignedTeams }, ack) => {
         if (!lobbyId) return;
         let lobby = lobbies.get(lobbyId);
 
@@ -638,6 +638,7 @@ io.on("connection", (socket) => {
                 startGame(lobbyId, lobby);
             }
         }
+        if (typeof ack === 'function') ack();
     });
 
     socket.on("uno:join", ({ lobbyId, userId, username }) => {
