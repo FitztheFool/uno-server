@@ -1,5 +1,5 @@
-import 'dotenv/config';
 // uno-server/src/index.ts
+import 'dotenv/config';
 import express from "express";
 import http from "http";
 import { Server } from "socket.io";
@@ -45,7 +45,7 @@ function createDeck() {
         }
     }
     for (const value of WILD_VALUES) {
-        for (let i = 0;i < 4;i++) {
+        for (let i = 0; i < 4; i++) {
             deck.push({ color: "wild", value, id: `${value}_${i}` });
         }
     }
@@ -54,7 +54,7 @@ function createDeck() {
 
 function shuffle(arr) {
     const a = [...arr];
-    for (let i = a.length - 1;i > 0;i--) {
+    for (let i = a.length - 1; i > 0; i--) {
         const j = Math.floor(Math.random() * (i + 1));
         [a[i], a[j]] = [a[j], a[i]];
     }
@@ -83,7 +83,7 @@ function nextPlayerIndex(lobby, currentIndex, direction, skip = false) {
 function assignTeams(lobby) {
     const players = shuffle([...lobby.players]);
     lobby.teams = new Map();
-    for (let i = 0;i < players.length;i++) {
+    for (let i = 0; i < players.length; i++) {
         lobby.teams.set(players[i].userId, i < 2 ? 0 : 1);
     }
 }
@@ -272,7 +272,7 @@ function emitLobbyState(lobbyId, lobby) {
 
 function drawCards(lobby, userId, count) {
     const hand = lobby.hands.get(userId) ?? [];
-    for (let i = 0;i < count;i++) {
+    for (let i = 0; i < count; i++) {
         if (lobby.deck.length === 0) {
             const top = lobby.discardPile.pop();
             lobby.deck = shuffle(lobby.discardPile);
