@@ -646,32 +646,10 @@ io.on("connection", (socket) => {
         socket.data = { lobbyId, userId, username };
         socket.join(`uno:${lobbyId}`);
 
-        let lobby = lobbies.get(lobbyId);
+        const lobby = lobbies.get(lobbyId);
         if (!lobby) {
-            lobby = {
-                hostId: userId,
-                status: "WAITING",
-                players: [],
-                spectators: [],
-                hands: new Map(),
-                deck: [],
-                discardPile: [],
-                currentColor: null,
-                currentPlayerIndex: 0,
-                direction: 1,
-                drawStack: 0,
-                saidUno: new Set(),
-                socketMap: new Map(),
-                options: { stackable: false, jumpIn: false, teamMode: "none", teamWinMode: "one" },
-                winner: null,
-                finalScores: null,
-                kickedPlayers: [],
-                expectedCount: null,
-                inactivityWarning: null,
-                inactivityKick: null,
-                teams: null,
-            };
-            lobbies.set(lobbyId, lobby);
+            socket.emit('notFound');
+            return;
         }
 
         if (!lobby.spectators) lobby.spectators = [];
