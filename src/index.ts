@@ -311,6 +311,8 @@ function computeFinalScores(lobby, winnerId) {
             pointsInHand: kicked.pointsInHand,
             score: 0,
             kicked: true,
+            abandon: kicked.abandon ?? false,
+            afk: kicked.afk ?? false,
             team: lobby.teams?.get(kicked.userId) ?? null,
         });
     }
@@ -374,7 +376,7 @@ async function saveAttempts(gameType, gameId, scores) {
 async function saveUnoAttempts(lobbyId, finalScores) {
     const scores = finalScores
         .filter(e => e.userId && e.userId.length > 8)
-        .map(e => ({ userId: e.userId, score: e.score, placement: e.rank }));
+        .map(e => ({ userId: e.userId, score: e.score, placement: e.rank, abandon: e.abandon ?? false, afk: e.afk ?? false }));
     if (scores.length === 0) return;
     await saveAttempts("UNO", lobbyId, scores);
 }
@@ -388,6 +390,7 @@ function finishGame(lobbyId, lobby, winnerId) {
     lobby.finalScores = computeFinalScores(lobby, winnerId);
     emitLobbyState(lobbyId, lobby);
     emitFinalState(lobbyId, lobby);
+    io.to(`uno:${lobbyId}`).emit('uno:finished', { winnerId: lobby.winner?.userId, winnerUsername: lobby.winner?.username });
     saveUnoAttempts(lobbyId, lobby.finalScores);
 }
 
@@ -451,6 +454,7 @@ function startInactivityTimer(lobbyId, lobby) {
             cardsLeft: hand.length,
             pointsInHand: handPoints(hand),
             socketId,
+            afk: true,
         });
 
         handleLeave(lobbyId, currentPlayer.userId, true);
@@ -459,6 +463,10 @@ function startInactivityTimer(lobbyId, lobby) {
 
 function resetLobby(lobby, hostId, options) {
     clearInactivityTimer(lobby);
+    if (lobby.disconnectTimers) {
+        for (const timer of lobby.disconnectTimers.values()) clearTimeout(timer);
+        lobby.disconnectTimers.clear();
+    }
     lobby.status = "WAITING";
     lobby.hostId = null;
     lobby.players = [];
@@ -617,6 +625,7 @@ io.on("connection", (socket) => {
                 inactivityKick: null,
                 teams: null,
                 preAssignedTeams: teamsMap,
+                disconnectTimers: new Map(),
             };
             lobbies.set(lobbyId, lobby);
         } else {
@@ -668,6 +677,12 @@ io.on("connection", (socket) => {
         if (lobby.status === "PLAYING") {
             const isExpectedPlayer = lobby.players.find(p => p.userId === userId);
             if (isExpectedPlayer) {
+                // Annuler le timer de déconnexion si reconnexion
+                const pendingTimer = lobby.disconnectTimers?.get(userId);
+                if (pendingTimer) {
+                    clearTimeout(pendingTimer);
+                    lobby.disconnectTimers.delete(userId);
+                }
                 emitGameState(lobbyId, lobby);
                 emitLobbyState(lobbyId, lobby);
                 return;
@@ -842,6 +857,27 @@ io.on("connection", (socket) => {
         emitLobbyState(lobbyId, lobby);
     });
 
+    socket.on("uno:surrender", () => {
+        const { lobbyId, userId } = socket.data || {};
+        const lobby = lobbies.get(lobbyId);
+        if (lobby && lobby.status === "PLAYING" && userId) {
+            const player = lobby.players.find(p => p.userId === userId);
+            if (player) {
+                const hand = lobby.hands.get(userId) ?? [];
+                if (!lobby.kickedPlayers) lobby.kickedPlayers = [];
+                lobby.kickedPlayers.push({
+                    userId: player.userId,
+                    username: player.username,
+                    cardsLeft: hand.length,
+                    pointsInHand: handPoints(hand),
+                    socketId: socket.id,
+                    abandon: true,
+                });
+            }
+        }
+        handleLeave(lobbyId, userId);
+    });
+
     socket.on("uno:leave", () => {
         const { lobbyId, userId } = socket.data || {};
         handleLeave(lobbyId, userId);
@@ -849,7 +885,21 @@ io.on("connection", (socket) => {
 
     socket.on("disconnect", () => {
         const { lobbyId, userId } = socket.data || {};
-        handleLeave(lobbyId, userId);
+        if (!lobbyId || !userId) return;
+        const lobby = lobbies.get(lobbyId);
+        if (!lobby || lobby.status !== "PLAYING") {
+            handleLeave(lobbyId, userId);
+            return;
+        }
+        // Délai de grâce : 10s pour permettre la reconnexion (ex. rafraîchissement)
+        if (!lobby.disconnectTimers) lobby.disconnectTimers = new Map();
+        const existing = lobby.disconnectTimers.get(userId);
+        if (existing) clearTimeout(existing);
+        const timer = setTimeout(() => {
+            lobby.disconnectTimers.delete(userId);
+            handleLeave(lobbyId, userId);
+        }, 10000);
+        lobby.disconnectTimers.set(userId, timer);
     });
 });
 
