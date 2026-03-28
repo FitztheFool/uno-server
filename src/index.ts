@@ -552,6 +552,7 @@ function handleLeave(lobbyId, userId, isKick = false) {
         lobby.spectators = lobby.spectators.filter(s => s.userId !== userId);
     }
 
+    const removedIndex = lobby.players.findIndex(p => p.userId === userId);
     lobby.players = lobby.players.filter(p => p.userId !== userId);
     lobby.hands.delete(userId);
 
@@ -566,6 +567,9 @@ function handleLeave(lobbyId, userId, isKick = false) {
     }
 
     if (lobby.status === "PLAYING") {
+        if (removedIndex !== -1 && removedIndex < lobby.currentPlayerIndex) {
+            lobby.currentPlayerIndex -= 1;
+        }
         if (lobby.currentPlayerIndex >= lobby.players.length) {
             lobby.currentPlayerIndex = 0;
         }
