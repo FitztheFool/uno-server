@@ -905,3 +905,8 @@ io.on("connection", (socket) => {
 
 const PORT = process.env.PORT || 10001;
 server.listen(PORT, () => console.log("[UNO] realtime listening on", PORT));
+
+
+const shutdown = () => server.close(() => process.exit(0));
+process.on("SIGTERM", shutdown);
+process.on("SIGINT", shutdown);
