@@ -1,5 +1,6 @@
 // uno-server/src/index.ts
 import 'dotenv/config';
+import { randomUUID } from 'crypto';
 import express from "express";
 import http from "http";
 import { Server } from "socket.io";
@@ -373,12 +374,12 @@ async function saveAttempts(gameType, gameId, scores) {
     }
 }
 
-async function saveUnoAttempts(lobbyId, finalScores) {
+async function saveUnoAttempts(gameId, finalScores) {
     const scores = finalScores
         .filter(e => e.userId && e.userId.length > 8)
         .map(e => ({ userId: e.userId, score: e.score, placement: e.rank, abandon: e.abandon ?? false, afk: e.afk ?? false }));
     if (scores.length === 0) return;
-    await saveAttempts("UNO", lobbyId, scores);
+    await saveAttempts("UNO", gameId, scores);
 }
 
 function finishGame(lobbyId, lobby, winnerId) {
@@ -391,7 +392,7 @@ function finishGame(lobbyId, lobby, winnerId) {
     emitLobbyState(lobbyId, lobby);
     emitFinalState(lobbyId, lobby);
     io.to(`uno:${lobbyId}`).emit('uno:finished', { winnerId: lobby.winner?.userId, winnerUsername: lobby.winner?.username });
-    saveUnoAttempts(lobbyId, lobby.finalScores);
+    saveUnoAttempts(lobby.currentGameId ?? lobbyId, lobby.finalScores);
 }
 
 function checkWinner(lobbyId, lobby) {
@@ -490,6 +491,7 @@ function resetLobby(lobby, hostId, options) {
 function startGame(lobbyId, lobby) {
     if (lobby.status !== "WAITING") return;
     if (lobby.players.length < 2) return;
+    lobby.currentGameId = randomUUID();
 
     // En mode 2v2, il faut exactement 4 joueurs
     if (lobby.options.teamMode === "2v2" && lobby.players.length !== 4) return;
