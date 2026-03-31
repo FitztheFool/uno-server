@@ -298,6 +298,7 @@ function computeFinalScores(lobby, winnerId) {
             username: player.username,
             cardsLeft: hand.length,
             pointsInHand: pts,
+            hand: hand,
             score: 0,
             kicked: false,
             team: lobby.teams?.get(player.userId) ?? null,
@@ -310,6 +311,7 @@ function computeFinalScores(lobby, winnerId) {
             username: kicked.username,
             cardsLeft: kicked.cardsLeft,
             pointsInHand: kicked.pointsInHand,
+            hand: kicked.hand ?? [],
             score: 0,
             kicked: true,
             abandon: kicked.abandon ?? false,
@@ -454,6 +456,7 @@ function startInactivityTimer(lobbyId, lobby) {
             username: currentPlayer.username,
             cardsLeft: hand.length,
             pointsInHand: handPoints(hand),
+            hand: [...hand],
             socketId,
             afk: true,
         });
@@ -876,6 +879,7 @@ io.on("connection", (socket) => {
                     username: player.username,
                     cardsLeft: hand.length,
                     pointsInHand: handPoints(hand),
+                    hand: hand,
                     socketId: socket.id,
                     abandon: true,
                 });
