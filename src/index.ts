@@ -4,6 +4,7 @@ import { randomUUID } from 'crypto';
 import express from "express";
 import http from "http";
 import { Server } from "socket.io";
+import { jwtVerify } from 'jose';
 
 const app = express();
 app.get("/health", (req, res) => res.status(200).send("ok"));
@@ -207,6 +208,7 @@ function buildStateFor(lobby, userId) {
         teammateHand,
         teammateId,
         myTeam: getTeamOf(lobby, userId),
+        turnEndsAt: lobby.turnStartedAt ? lobby.turnStartedAt + INACTIVITY_KICK_MS : null,
     };
 }
 
@@ -235,6 +237,7 @@ function buildSpectatorState(lobby) {
         teammateHand: null,
         teammateId: null,
         myTeam: null,
+        turnEndsAt: lobby.turnStartedAt ? lobby.turnStartedAt + INACTIVITY_KICK_MS : null,
     };
 }
 
@@ -420,6 +423,7 @@ function checkWinner(lobbyId, lobby) {
 function clearInactivityTimer(lobby) {
     if (lobby.inactivityWarning) { clearTimeout(lobby.inactivityWarning); lobby.inactivityWarning = null; }
     if (lobby.inactivityKick) { clearTimeout(lobby.inactivityKick); lobby.inactivityKick = null; }
+    lobby.turnStartedAt = null;
 }
 
 function startInactivityTimer(lobbyId, lobby) {
@@ -427,6 +431,7 @@ function startInactivityTimer(lobbyId, lobby) {
     if (lobby.status !== "PLAYING") return;
     const currentPlayer = lobby.players[lobby.currentPlayerIndex];
     if (!currentPlayer) return;
+    lobby.turnStartedAt = Date.now();
 
     lobby.inactivityWarning = setTimeout(() => {
         io.to(`uno:${lobbyId}`).emit("uno:inactivityWarning", {
@@ -591,6 +596,21 @@ function handleLeave(lobbyId, userId, isKick = false) {
 
 // ── Socket events ─────────────────────────────────────────────────────────────
 
+const SOCKET_SECRET = new TextEncoder().encode(process.env.INTERNAL_API_KEY!);
+
+io.use(async (socket, next) => {
+    const token = socket.handshake.auth?.token as string | undefined;
+    if (!token) return next(new Error('auth_required'));
+    try {
+        const { payload } = await jwtVerify(token, SOCKET_SECRET);
+        socket.data.userId = payload.sub as string;
+        socket.data.username = payload.username as string;
+        next();
+    } catch {
+        next(new Error('invalid_token'));
+    }
+});
+
 io.on("connection", (socket) => {
     console.log("nouvelle connexion uno", socket.id);
 
@@ -659,9 +679,10 @@ io.on("connection", (socket) => {
         if (typeof ack === 'function') ack();
     });
 
-    socket.on("uno:join", ({ lobbyId, userId, username }) => {
+    socket.on("uno:join", ({ lobbyId }) => {
+        const { userId, username } = socket.data;
         if (!lobbyId || !userId) return;
-        socket.data = { lobbyId, userId, username };
+        socket.data.lobbyId = lobbyId;
         socket.join(`uno:${lobbyId}`);
 
         const lobby = lobbies.get(lobbyId);
