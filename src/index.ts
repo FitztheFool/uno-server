@@ -4,12 +4,12 @@ import { randomUUID } from 'crypto';
 import express from 'express';
 import http from 'http';
 import { Server } from 'socket.io';
-import { jwtVerify } from 'jose';
+import { setupSocketAuth, corsConfig } from '@kwizar/shared';
 
 import { Lobby, GameOptions } from './types';
 import {
     STARTING_HAND, UNO_PENALTY,
-    createDeck, shuffle, canPlay, nextPlayerIndex,
+    createDeck, canPlay, nextPlayerIndex,
     drawCards, assignTeams, checkTeamWinner, computeFinalScores,
 } from './game';
 import { emitGameState, emitFinalState, emitLobbyState, buildSpectatorState } from './state';
@@ -21,16 +21,10 @@ import { saveUnoAttempts } from './api';
 // ── Server setup ───────────────────────────────────────────────────────────────
 
 const app = express();
-app.get('/health', (req, res) => res.status(200).send('ok'));
+app.get('/health', (_req, res) => res.status(200).send('ok'));
 
 const server = http.createServer(app);
-const io = new Server(server, {
-    cors: {
-        origin: process.env.FRONTEND_URL,
-        methods: ['GET', 'POST'],
-        credentials: true,
-    },
-});
+const io = new Server(server, { cors: corsConfig });
 
 // ── Wire up timer callbacks ────────────────────────────────────────────────────
 
@@ -121,7 +115,7 @@ function startGame(lobbyId: string, lobby: Lobby): void {
     triggerBotIfNeeded(lobbyId, lobby);
 }
 
-function handleLeave(lobbyId: string, userId: string, isKick = false): void {
+function handleLeave(lobbyId: string, userId: string, _isKick = false): void {
     if (!lobbyId || !userId) return;
     const lobby = lobbies.get(lobbyId);
     if (!lobby) return;
@@ -249,22 +243,7 @@ function botTakeTurn(lobbyId: string): void {
     triggerBotIfNeeded(lobbyId, lobby);
 }
 
-// ── Auth middleware ────────────────────────────────────────────────────────────
-
-const SOCKET_SECRET = new TextEncoder().encode(process.env.INTERNAL_API_KEY!);
-
-io.use(async (socket, next) => {
-    const token = socket.handshake.auth?.token as string | undefined;
-    if (!token) return next(new Error('auth_required'));
-    try {
-        const { payload } = await jwtVerify(token, SOCKET_SECRET);
-        socket.data.userId = payload.sub as string;
-        socket.data.username = payload.username as string;
-        next();
-    } catch {
-        next(new Error('invalid_token'));
-    }
-});
+setupSocketAuth(io, new TextEncoder().encode(process.env.INTERNAL_API_KEY!));
 
 // ── Socket events ──────────────────────────────────────────────────────────────
 
