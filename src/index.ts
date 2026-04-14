@@ -21,7 +21,7 @@ import { saveUnoAttempts } from './api';
 // ── Server setup ───────────────────────────────────────────────────────────────
 
 const app = express();
-app.get('/health', (_req, res) => res.status(200).send('ok'));
+app.get('/health', (_req, res) => { res.set('Access-Control-Allow-Origin', '*'); res.status(200).send('ok'); });
 
 const server = http.createServer(app);
 const io = new Server(server, { cors: corsConfig, maxHttpBufferSize: 1e5 });
