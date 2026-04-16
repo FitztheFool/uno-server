@@ -5,6 +5,8 @@ import express from 'express';
 import http from 'http';
 import { Server } from 'socket.io';
 import { setupSocketAuth, corsConfig } from '@kwizar/shared';
+import { io as socketClient } from 'socket.io-client';
+import { SignJWT } from 'jose';
 
 import { Lobby, GameOptions } from './types';
 import {
@@ -245,12 +247,28 @@ function botTakeTurn(lobbyId: string): void {
 
 setupSocketAuth(io, new TextEncoder().encode(process.env.INTERNAL_API_KEY!));
 
-// ── Socket events ──────────────────────────────────────────────────────────────
+// ── Lobby server connection ────────────────────────────────────────────────────
 
-io.on('connection', (socket) => {
-    console.log('nouvelle connexion uno', socket.id);
+const LOBBY_URL = process.env.LOBBY_SERVER_URL || 'http://localhost:10000';
 
-    socket.on('uno:configure', ({ lobbyId, options, expectedCount, preAssignedTeams, botCount }, ack) => {
+async function makeLobbyToken(): Promise<string> {
+    return new SignJWT({ username: 'uno-server' })
+        .setProtectedHeader({ alg: 'HS256' })
+        .setSubject('uno-server')
+        .sign(new TextEncoder().encode(process.env.INTERNAL_API_KEY!));
+}
+
+const lobbySocket = socketClient(LOBBY_URL, {
+    auth: (cb: (d: object) => void) => makeLobbyToken().then(token => cb({ token, gameType: 'uno' })),
+    reconnection: true,
+    reconnectionDelay: 5_000,
+    reconnectionDelayMax: 30_000,
+});
+lobbySocket.on('connect', () => console.log('[LOBBY] connected'));
+lobbySocket.on('disconnect', (reason: string) => console.log('[LOBBY] disconnected:', reason));
+lobbySocket.on('connect_error', (err: any) => console.log('[LOBBY] connect_error:', err.message));
+
+lobbySocket.on('uno:configure', ({ lobbyId, options, expectedCount, preAssignedTeams, botCount }: any, ack?: () => void) => {
         if (!lobbyId) return;
         let lobby = lobbies.get(lobbyId);
 
@@ -329,7 +347,12 @@ io.on('connection', (socket) => {
             }
         }
         if (typeof ack === 'function') ack();
-    });
+});
+
+// ── Socket events ──────────────────────────────────────────────────────────────
+
+io.on('connection', (socket) => {
+    console.log('nouvelle connexion uno', socket.id);
 
     socket.on('uno:join', ({ lobbyId }) => {
         const { userId, username } = socket.data;
