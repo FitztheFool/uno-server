@@ -153,6 +153,10 @@ function handleLeave(lobbyId: string, userId: string, _isKick = false): void {
             finishGame(lobbyId, lobby, lobby.players[0].userId);
             return;
         }
+        if (lobby.players.every(p => p.userId.startsWith('bot-'))) {
+            finishGame(lobbyId, lobby, lobby.players[0].userId);
+            return;
+        }
         startInactivityTimer(io, lobbyId, lobby);
         emitGameState(io, lobbyId, lobby);
     }
