@@ -4,9 +4,7 @@ import { randomUUID } from 'crypto';
 import express from 'express';
 import http from 'http';
 import { Server } from 'socket.io';
-import { setupSocketAuth, corsConfig } from '@kwizar/shared';
-import { io as socketClient } from 'socket.io-client';
-import { SignJWT } from 'jose';
+import { setupSocketAuth, corsConfig, connectToLobby } from '@kwizar/shared';
 
 import { Lobby, GameOptions } from './types';
 import {
@@ -251,26 +249,7 @@ function botTakeTurn(lobbyId: string): void {
 
 setupSocketAuth(io, new TextEncoder().encode(process.env.INTERNAL_API_KEY!));
 
-// ── Lobby server connection ────────────────────────────────────────────────────
-
-const LOBBY_URL = process.env.LOBBY_SERVER_URL || 'http://localhost:10000';
-
-async function makeLobbyToken(): Promise<string> {
-    return new SignJWT({ username: 'uno-server' })
-        .setProtectedHeader({ alg: 'HS256' })
-        .setSubject('uno-server')
-        .sign(new TextEncoder().encode(process.env.INTERNAL_API_KEY!));
-}
-
-const lobbySocket = socketClient(LOBBY_URL, {
-    auth: (cb: (d: object) => void) => makeLobbyToken().then(token => cb({ token, gameType: 'uno' })),
-    reconnection: true,
-    reconnectionDelay: 5_000,
-    reconnectionDelayMax: 30_000,
-});
-lobbySocket.on('connect', () => console.log('[LOBBY] connected'));
-lobbySocket.on('disconnect', (reason: string) => console.log('[LOBBY] disconnected:', reason));
-lobbySocket.on('connect_error', (err: any) => console.log('[LOBBY] connect_error:', err.message));
+const lobbySocket = connectToLobby('uno-server', 'uno');
 
 lobbySocket.on('uno:configure', ({ lobbyId, options, expectedCount, preAssignedTeams, botCount }: any, ack?: () => void) => {
         if (!lobbyId) return;
