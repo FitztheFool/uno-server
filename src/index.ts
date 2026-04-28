@@ -363,7 +363,11 @@ io.on('connection', (socket) => {
             const isExpectedPlayer = lobby.players.find(p => p.userId === userId);
             if (isExpectedPlayer) {
                 const pendingTimer = lobby.disconnectTimers?.get(userId);
-                if (pendingTimer) { clearTimeout(pendingTimer); lobby.disconnectTimers.delete(userId); }
+                if (pendingTimer) {
+                    clearTimeout(pendingTimer);
+                    lobby.disconnectTimers.delete(userId);
+                    io.to(`uno:${lobbyId}`).emit('uno:playerReconnected', { userId });
+                }
                 emitGameState(io, lobbyId, lobby);
                 emitLobbyState(io, lobbyId, lobby);
                 return;
@@ -581,6 +585,10 @@ io.on('connection', (socket) => {
         if (!lobby.disconnectTimers) lobby.disconnectTimers = new Map();
         const existing = lobby.disconnectTimers.get(userId);
         if (existing) clearTimeout(existing);
+        const player = lobby.players.find(p => p.userId === userId);
+        if (player) {
+            io.to(`uno:${lobbyId}`).emit('uno:inactivityWarning', { userId, username: player.username, secondsLeft: 10 });
+        }
         const timer = setTimeout(() => {
             lobby.disconnectTimers.delete(userId);
             handleLeave(lobbyId, userId);
