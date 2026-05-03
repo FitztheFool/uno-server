@@ -38,6 +38,7 @@ export function buildStateFor(lobby: Lobby, userId: string) {
         teammateId,
         myTeam: getTeamOf(lobby, userId),
         turnEndsAt: lobby.turnStartedAt ? lobby.turnStartedAt + INACTIVITY_KICK_MS : null,
+        turnDuration: INACTIVITY_KICK_MS / 1000,
     };
 }
 

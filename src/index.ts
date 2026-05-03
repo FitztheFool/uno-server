@@ -115,7 +115,7 @@ function startGame(lobbyId: string, lobby: Lobby): void {
     triggerBotIfNeeded(lobbyId, lobby);
 }
 
-function handleLeave(lobbyId: string, userId: string, _isKick = false): void {
+function handleLeave(lobbyId: string, userId: string, isKick = false): void {
     if (!lobbyId || !userId) return;
     const lobby = lobbies.get(lobbyId);
     if (!lobby) return;
@@ -127,6 +127,8 @@ function handleLeave(lobbyId: string, userId: string, _isKick = false): void {
     }
 
     const removedIndex = lobby.players.findIndex(p => p.userId === userId);
+    const wasCurrentPlayer = removedIndex === lobby.currentPlayerIndex;  // ← nouveau
+
     lobby.players = lobby.players.filter(p => p.userId !== userId);
     lobby.hands.delete(userId);
 
@@ -155,6 +157,19 @@ function handleLeave(lobbyId: string, userId: string, _isKick = false): void {
             finishGame(lobbyId, lobby, lobby.players[0].userId);
             return;
         }
+
+        // ← Si c'était le tour du joueur exclu, on passe au suivant
+        if (wasCurrentPlayer) {
+            if (lobby.currentPlayerIndex >= lobby.players.length) {
+                lobby.currentPlayerIndex = 0;
+            }
+            startInactivityTimer(io, lobbyId, lobby);
+            emitGameState(io, lobbyId, lobby);
+            triggerBotIfNeeded(lobbyId, lobby);  // ← déclenche le bot si nécessaire
+            emitLobbyState(io, lobbyId, lobby);
+            return;
+        }
+
         startInactivityTimer(io, lobbyId, lobby);
         emitGameState(io, lobbyId, lobby);
     }
@@ -252,84 +267,84 @@ setupSocketAuth(io, new TextEncoder().encode(process.env.INTERNAL_API_KEY!));
 const lobbySocket = connectToLobby('uno-server', 'uno');
 
 lobbySocket.on('uno:configure', ({ lobbyId, options, expectedCount, preAssignedTeams, botCount }: any, ack?: () => void) => {
-        if (!lobbyId) return;
-        let lobby = lobbies.get(lobbyId);
+    if (!lobbyId) return;
+    let lobby = lobbies.get(lobbyId);
 
-        const defaultOptions: GameOptions = {
-            stackable: false,
-            jumpIn: false,
-            teamMode: 'none',
-            teamWinMode: 'one',
+    const defaultOptions: GameOptions = {
+        stackable: false,
+        jumpIn: false,
+        teamMode: 'none',
+        teamWinMode: 'one',
+    };
+    const mergedOptions: GameOptions = { ...defaultOptions, ...(options ?? {}) };
+    const numBots = Number(botCount ?? 0);
+
+    const teamsMap = preAssignedTeams
+        ? new Map(Object.entries(preAssignedTeams).map(([k, v]) => [k, Number(v)]))
+        : null;
+
+    if (!lobby) {
+        lobby = {
+            hostId: null,
+            status: 'WAITING',
+            players: [],
+            spectators: [],
+            hands: new Map(),
+            deck: [],
+            discardPile: [],
+            currentColor: null,
+            currentPlayerIndex: 0,
+            direction: 1,
+            drawStack: 0,
+            saidUno: new Set(),
+            socketMap: new Map(),
+            options: mergedOptions,
+            winner: null,
+            finalScores: null,
+            kickedPlayers: [],
+            expectedCount: expectedCount ?? null,
+            botCount: numBots,
+            inactivityWarning: null,
+            inactivityKick: null,
+            turnStartedAt: null,
+            teams: null,
+            preAssignedTeams: teamsMap,
+            disconnectTimers: new Map(),
         };
-        const mergedOptions: GameOptions = { ...defaultOptions, ...(options ?? {}) };
-        const numBots = Number(botCount ?? 0);
-
-        const teamsMap = preAssignedTeams
-            ? new Map(Object.entries(preAssignedTeams).map(([k, v]) => [k, Number(v)]))
-            : null;
-
-        if (!lobby) {
-            lobby = {
-                hostId: null,
-                status: 'WAITING',
-                players: [],
-                spectators: [],
-                hands: new Map(),
-                deck: [],
-                discardPile: [],
-                currentColor: null,
-                currentPlayerIndex: 0,
-                direction: 1,
-                drawStack: 0,
-                saidUno: new Set(),
-                socketMap: new Map(),
-                options: mergedOptions,
-                winner: null,
-                finalScores: null,
-                kickedPlayers: [],
-                expectedCount: expectedCount ?? null,
-                botCount: numBots,
-                inactivityWarning: null,
-                inactivityKick: null,
-                turnStartedAt: null,
-                teams: null,
-                preAssignedTeams: teamsMap,
-                disconnectTimers: new Map(),
-            };
-            lobbies.set(lobbyId, lobby);
+        lobbies.set(lobbyId, lobby);
+    } else {
+        if (lobby.status === 'FINISHED' || lobby.status === 'PLAYING') {
+            resetLobby(lobby, mergedOptions);
         } else {
-            if (lobby.status === 'FINISHED' || lobby.status === 'PLAYING') {
-                resetLobby(lobby, mergedOptions);
-            } else {
-                lobby.options = mergedOptions;
-            }
-            if (expectedCount) lobby.expectedCount = expectedCount;
-            if (teamsMap) lobby.preAssignedTeams = teamsMap;
-            lobby.botCount = numBots;
+            lobby.options = mergedOptions;
         }
+        if (expectedCount) lobby.expectedCount = expectedCount;
+        if (teamsMap) lobby.preAssignedTeams = teamsMap;
+        lobby.botCount = numBots;
+    }
 
-        // Pré-ajouter les bots comme joueurs
-        const existingBots = lobby.players.filter(p => p.userId.startsWith('bot-'));
-        if (existingBots.length === 0 && numBots > 0) {
-            for (let i = 0; i < numBots; i++) {
-                lobby.players.push({
-                    userId: `bot-uno-${randomUUID()}`,
-                    username: numBots === 1 ? '🤖 Bot 1' : `🤖 Bot ${i + 1}`,
-                });
-            }
+    // Pré-ajouter les bots comme joueurs
+    const existingBots = lobby.players.filter(p => p.userId.startsWith('bot-'));
+    if (existingBots.length === 0 && numBots > 0) {
+        for (let i = 0; i < numBots; i++) {
+            lobby.players.push({
+                userId: `bot-uno-${randomUUID()}`,
+                username: numBots === 1 ? '🤖 Bot 1' : `🤖 Bot ${i + 1}`,
+            });
         }
+    }
 
-        io.to(`uno:${lobbyId}`).emit('uno:ready', { lobbyId });
+    io.to(`uno:${lobbyId}`).emit('uno:ready', { lobbyId });
 
-        // Tenter de démarrer si des joueurs sont déjà arrivés avant configure
-        if (lobby.status === 'WAITING' && lobby.players.length > 0) {
-            const humanCount = lobby.players.filter(p => !p.userId.startsWith('bot-')).length;
-            const required = mergedOptions.teamMode === '2v2' ? 4 : (expectedCount ?? 2);
-            if (humanCount >= required) {
-                startGame(lobbyId, lobby);
-            }
+    // Tenter de démarrer si des joueurs sont déjà arrivés avant configure
+    if (lobby.status === 'WAITING' && lobby.players.length > 0) {
+        const humanCount = lobby.players.filter(p => !p.userId.startsWith('bot-')).length;
+        const required = mergedOptions.teamMode === '2v2' ? 4 : (expectedCount ?? 2);
+        if (humanCount >= required) {
+            startGame(lobbyId, lobby);
         }
-        if (typeof ack === 'function') ack();
+    }
+    if (typeof ack === 'function') ack();
 });
 
 // ── Socket events ──────────────────────────────────────────────────────────────
