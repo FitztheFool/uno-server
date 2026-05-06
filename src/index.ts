@@ -602,12 +602,33 @@ io.on('connection', (socket) => {
         if (existing) clearTimeout(existing);
         const player = lobby.players.find(p => p.userId === userId);
         if (player) {
-            io.to(`uno:${lobbyId}`).emit('uno:inactivityWarning', { userId, username: player.username, secondsLeft: 10 });
+            io.to(`uno:${lobbyId}`).emit('uno:inactivityWarning', { userId, username: player.username, secondsLeft: 60 });
         }
         const timer = setTimeout(() => {
             lobby.disconnectTimers.delete(userId);
+            const lob = lobbies.get(lobbyId);
+            if (lob && lob.status === 'PLAYING') {
+                const p = lob.players.find(p => p.userId === userId);
+                if (p) {
+                    const hand = lob.hands.get(userId) ?? [];
+                    if (!lob.kickedPlayers) lob.kickedPlayers = [];
+                    lob.kickedPlayers.push({
+                        userId: p.userId,
+                        username: p.username,
+                        cardsLeft: hand.length,
+                        pointsInHand: hand.reduce((s, c) => {
+                            if (c.value === 'wild' || c.value === 'wild4') return s + 50;
+                            if (['skip', 'reverse', 'draw2'].includes(c.value)) return s + 20;
+                            return s + (parseInt(c.value, 10) || 0);
+                        }, 0),
+                        hand,
+                        socketId: null,
+                        afk: true,
+                    });
+                }
+            }
             handleLeave(lobbyId, userId);
-        }, 10000);
+        }, 60_000);
         lobby.disconnectTimers.set(userId, timer);
     });
 });
