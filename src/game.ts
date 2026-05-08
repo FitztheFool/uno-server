@@ -1,4 +1,6 @@
 import { Card, FinalScore, Lobby, UnoPlayer } from './types';
+import { shuffle } from '@kwizar/shared';
+
 
 // ── Constants ──────────────────────────────────────────────────────────────────
 
@@ -18,15 +20,6 @@ export function cardPoints(card: Card): number {
 
 export function handPoints(hand: Card[]): number {
     return hand.reduce((sum, card) => sum + cardPoints(card), 0);
-}
-
-export function shuffle<T>(arr: T[]): T[] {
-    const a = [...arr];
-    for (let i = a.length - 1; i > 0; i--) {
-        const j = Math.floor(Math.random() * (i + 1));
-        [a[i], a[j]] = [a[j], a[i]];
-    }
-    return a;
 }
 
 export function createDeck(): Card[] {
