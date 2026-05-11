@@ -262,7 +262,7 @@ function botTakeTurn(lobbyId: string): void {
     triggerBotIfNeeded(lobbyId, lobby);
 }
 
-setupSocketAuth(io, new TextEncoder().encode(process.env.INTERNAL_API_KEY!));
+setupSocketAuth(io, new TextEncoder().encode((process.env.SOCKET_USER_SECRET ?? process.env.INTERNAL_API_KEY)!));
 
 const lobbySocket = connectToLobby('uno-server', 'uno');
 
@@ -638,6 +638,12 @@ io.on('connection', (socket) => {
 const PORT = process.env.PORT || 10001;
 server.listen(PORT, () => console.log('[UNO] realtime listening on', PORT));
 
-const shutdown = () => server.close(() => process.exit(0));
-process.on('SIGTERM', shutdown);
-process.on('SIGINT', shutdown);
+const shutdown = () => {
+    io.close(() => {
+        server.close(() => process.exit(0));
+    });
+    setTimeout(() => process.exit(1), 3000).unref();
+};
+
+process.on("SIGTERM", shutdown);
+process.on("SIGINT", shutdown);
