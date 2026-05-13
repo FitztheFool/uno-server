@@ -266,7 +266,7 @@ setupSocketAuth(io, new TextEncoder().encode((process.env.SOCKET_USER_SECRET ?? 
 
 const lobbySocket = connectToLobby('uno-server', 'uno');
 
-lobbySocket.on('uno:configure', ({ lobbyId, options, expectedCount, preAssignedTeams, botCount }: any, ack?: () => void) => {
+lobbySocket.on('uno:configure', ({ lobbyId, options, expectedCount, preAssignedTeams, botCount, bots }: any, ack?: () => void) => {
     if (!lobbyId) return;
     let lobby = lobbies.get(lobbyId);
 
@@ -277,7 +277,8 @@ lobbySocket.on('uno:configure', ({ lobbyId, options, expectedCount, preAssignedT
         teamWinMode: 'one',
     };
     const mergedOptions: GameOptions = { ...defaultOptions, ...(options ?? {}) };
-    const numBots = Number(botCount ?? 0);
+    const botList: Array<{ userId: string; username: string }> = Array.isArray(bots) ? bots : [];
+    const numBots = botList.length || Number(botCount ?? 0);
 
     const teamsMap = preAssignedTeams
         ? new Map(Object.entries(preAssignedTeams).map(([k, v]) => [k, Number(v)]))
@@ -326,11 +327,15 @@ lobbySocket.on('uno:configure', ({ lobbyId, options, expectedCount, preAssignedT
     // Pré-ajouter les bots comme joueurs
     const existingBots = lobby.players.filter(p => p.userId.startsWith('bot-'));
     if (existingBots.length === 0 && numBots > 0) {
-        for (let i = 0; i < numBots; i++) {
-            lobby.players.push({
-                userId: `bot-uno-${randomUUID()}`,
-                username: numBots === 1 ? '🤖 Bot 1' : `🤖 Bot ${i + 1}`,
-            });
+        if (botList.length > 0) {
+            for (const b of botList) lobby.players.push({ userId: b.userId, username: b.username });
+        } else {
+            for (let i = 0; i < numBots; i++) {
+                lobby.players.push({
+                    userId: `bot-uno-${randomUUID()}`,
+                    username: numBots === 1 ? '🤖 Bot 1' : `🤖 Bot ${i + 1}`,
+                });
+            }
         }
     }
 
@@ -339,7 +344,7 @@ lobbySocket.on('uno:configure', ({ lobbyId, options, expectedCount, preAssignedT
     // Tenter de démarrer si des joueurs sont déjà arrivés avant configure
     if (lobby.status === 'WAITING' && lobby.players.length > 0) {
         const humanCount = lobby.players.filter(p => !p.userId.startsWith('bot-')).length;
-        const required = mergedOptions.teamMode === '2v2' ? 4 : (expectedCount ?? 2);
+        const required = expectedCount ?? 2;
         if (humanCount >= required) {
             startGame(lobbyId, lobby);
         }
@@ -403,8 +408,7 @@ io.on('connection', (socket) => {
 
         if (lobby.expectedCount !== null) {
             const humanCount = lobby.players.filter(p => !p.userId.startsWith('bot-')).length;
-            const requiredPlayers = lobby.options.teamMode === '2v2' ? 4 : lobby.expectedCount;
-            if (humanCount >= requiredPlayers) {
+            if (humanCount >= lobby.expectedCount) {
                 startGame(lobbyId, lobby);
             }
         }
