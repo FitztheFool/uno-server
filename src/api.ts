@@ -8,6 +8,7 @@ export async function saveUnoAttempts(gameId: string, finalScores: FinalScore[])
         username: e.username,
         score: e.score,
         placement: e.rank,
+        team: e.team,
         abandon: e.abandon ?? false,
         afk: e.afk ?? false,
     }));
