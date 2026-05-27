@@ -17,6 +17,22 @@ import { clearInactivityTimer, startInactivityTimer, timerCallbacks } from './ti
 import { chooseBotColor, botChooseCard } from './bot';
 import { lobbies, resetLobby } from './rooms';
 import { saveUnoAttempts } from './api';
+import { pushLog } from './gameLog';
+import type { Card } from './types';
+
+const COLOR_FR: Record<string, string> = { red: 'Rouge', green: 'Vert', blue: 'Bleu', yellow: 'Jaune', wild: 'Joker' };
+const VALUE_FR: Record<string, string> = { skip: 'Passe', reverse: 'Inversion', draw2: '+2', wild: 'Joker', wild4: '+4' };
+function cardLabel(card: Card, color?: string | null): string {
+    if (card.value === 'wild' || card.value === 'wild4') {
+        const c = color && COLOR_FR[color] ? ` (${COLOR_FR[color]})` : '';
+        return `${VALUE_FR[card.value]}${c}`;
+    }
+    const v = VALUE_FR[card.value] ?? card.value;
+    return `${COLOR_FR[card.color] ?? card.color} ${v}`;
+}
+function uname(lobby: Lobby, userId: string): string {
+    return lobby.players.find(p => p.userId === userId)?.username ?? '?';
+}
 
 // ── Server setup ───────────────────────────────────────────────────────────────
 
@@ -39,6 +55,7 @@ function finishGame(lobbyId: string, lobby: Lobby, winnerId: string): void {
         ?? lobby.kickedPlayers?.find(p => p.userId === winnerId);
     lobby.status = 'FINISHED';
     lobby.winner = { userId: winnerId, username: winner?.username ?? '?' };
+    pushLog(lobby, 'coup', `${lobby.winner.username} gagne la partie !`);
     lobby.finalScores = computeFinalScores(lobby, winnerId);
     emitLobbyState(io, lobbyId, lobby);
     emitFinalState(io, lobbyId, lobby);
@@ -200,9 +217,11 @@ function botTakeTurn(lobbyId: string): void {
 
     if (!card) {
         if (lobby.drawStack > 0) {
+            pushLog(lobby, 'defend', `${uname(lobby, botId)} encaisse et pioche ${lobby.drawStack} cartes`);
             drawCards(lobby, botId, lobby.drawStack);
             lobby.drawStack = 0;
         } else {
+            pushLog(lobby, 'move', `${uname(lobby, botId)} pioche une carte`);
             drawCards(lobby, botId, 1);
         }
         lobby.saidUno.delete(botId);
@@ -225,32 +244,40 @@ function botTakeTurn(lobbyId: string): void {
         ? chooseBotColor(hand.length > 0 ? hand : lobby.hands.get(botId) ?? [])
         : card.color;
     lobby.currentColor = chosenColor;
+    pushLog(lobby, 'move', `${uname(lobby, botId)} joue ${cardLabel(card, lobby.currentColor)}`);
 
     if (checkWinner(lobbyId, lobby)) return;
 
     const curIdx = lobby.currentPlayerIndex;
 
     if (card.value === 'skip') {
+        const skipped = lobby.players[nextPlayerIndex(lobby, curIdx, lobby.direction)];
+        pushLog(lobby, 'attack', `${skipped?.username ?? '?'} passe son tour`);
         lobby.currentPlayerIndex = nextPlayerIndex(lobby, curIdx, lobby.direction, true);
     } else if (card.value === 'reverse') {
         lobby.direction *= -1;
+        pushLog(lobby, 'system', 'Sens de jeu inversé');
         lobby.currentPlayerIndex = nextPlayerIndex(lobby, curIdx, lobby.direction);
     } else if (card.value === 'draw2') {
         if (lobby.options.stackable) {
             lobby.drawStack += 2;
+            pushLog(lobby, 'attack', `Pioche cumulée : +${lobby.drawStack}`);
             lobby.currentPlayerIndex = nextPlayerIndex(lobby, curIdx, lobby.direction);
         } else {
             const nextIdx = nextPlayerIndex(lobby, curIdx, lobby.direction);
             drawCards(lobby, lobby.players[nextIdx].userId, 2);
+            pushLog(lobby, 'attack', `${lobby.players[nextIdx]?.username ?? '?'} pioche 2 cartes`);
             lobby.currentPlayerIndex = nextPlayerIndex(lobby, nextIdx, lobby.direction);
         }
     } else if (card.value === 'wild4') {
         if (lobby.options.stackable) {
             lobby.drawStack += 4;
+            pushLog(lobby, 'attack', `Pioche cumulée : +${lobby.drawStack}`);
             lobby.currentPlayerIndex = nextPlayerIndex(lobby, curIdx, lobby.direction);
         } else {
             const nextIdx = nextPlayerIndex(lobby, curIdx, lobby.direction);
             drawCards(lobby, lobby.players[nextIdx].userId, 4);
+            pushLog(lobby, 'attack', `${lobby.players[nextIdx]?.username ?? '?'} pioche 4 cartes`);
             lobby.currentPlayerIndex = nextPlayerIndex(lobby, nextIdx, lobby.direction);
         }
     } else {
@@ -311,6 +338,8 @@ lobbySocket.on('uno:configure', ({ lobbyId, options, expectedCount, preAssignedT
             teams: null,
             preAssignedTeams: teamsMap,
             disconnectTimers: new Map(),
+            log: [],
+            logSeq: 0,
         };
         lobbies.set(lobbyId, lobby);
     } else {
@@ -452,6 +481,7 @@ io.on('connection', (socket) => {
         else lobby.saidUno.delete(userId);
 
         lobby.currentColor = card.color === 'wild' ? (chosenColor ?? 'red') : card.color;
+        pushLog(lobby, 'move', `${uname(lobby, userId)} joue ${cardLabel(card, lobby.currentColor)}`);
 
         if (checkWinner(lobbyId, lobby)) return;
 
@@ -462,26 +492,33 @@ io.on('connection', (socket) => {
         const curIdx = lobby.currentPlayerIndex;
 
         if (card.value === 'skip') {
+            const skipped = lobby.players[nextPlayerIndex(lobby, curIdx, lobby.direction)];
+            pushLog(lobby, 'attack', `${skipped?.username ?? '?'} passe son tour`);
             lobby.currentPlayerIndex = nextPlayerIndex(lobby, curIdx, lobby.direction, true);
         } else if (card.value === 'reverse') {
             lobby.direction *= -1;
+            pushLog(lobby, 'system', 'Sens de jeu inversé');
             lobby.currentPlayerIndex = nextPlayerIndex(lobby, curIdx, lobby.direction);
         } else if (card.value === 'draw2') {
             if (lobby.options.stackable) {
                 lobby.drawStack += 2;
+                pushLog(lobby, 'attack', `Pioche cumulée : +${lobby.drawStack}`);
                 lobby.currentPlayerIndex = nextPlayerIndex(lobby, curIdx, lobby.direction);
             } else {
                 const nextIdx = nextPlayerIndex(lobby, curIdx, lobby.direction);
                 drawCards(lobby, lobby.players[nextIdx].userId, 2);
+                pushLog(lobby, 'attack', `${lobby.players[nextIdx]?.username ?? '?'} pioche 2 cartes`);
                 lobby.currentPlayerIndex = nextPlayerIndex(lobby, nextIdx, lobby.direction);
             }
         } else if (card.value === 'wild4') {
             if (lobby.options.stackable) {
                 lobby.drawStack += 4;
+                pushLog(lobby, 'attack', `Pioche cumulée : +${lobby.drawStack}`);
                 lobby.currentPlayerIndex = nextPlayerIndex(lobby, curIdx, lobby.direction);
             } else {
                 const nextIdx = nextPlayerIndex(lobby, curIdx, lobby.direction);
                 drawCards(lobby, lobby.players[nextIdx].userId, 4);
+                pushLog(lobby, 'attack', `${lobby.players[nextIdx]?.username ?? '?'} pioche 4 cartes`);
                 lobby.currentPlayerIndex = nextPlayerIndex(lobby, nextIdx, lobby.direction);
             }
         } else {
@@ -509,9 +546,11 @@ io.on('connection', (socket) => {
         if (currentPlayer.userId !== userId) return;
 
         if (lobby.drawStack > 0) {
+            pushLog(lobby, 'defend', `${uname(lobby, userId)} encaisse et pioche ${lobby.drawStack} cartes`);
             drawCards(lobby, userId, lobby.drawStack);
             lobby.drawStack = 0;
         } else {
+            pushLog(lobby, 'move', `${uname(lobby, userId)} pioche une carte`);
             drawCards(lobby, userId, 1);
         }
 
@@ -559,6 +598,8 @@ io.on('connection', (socket) => {
         lobby.saidUno = new Set();
         lobby.drawStack = 0;
         lobby.teams = null;
+        lobby.log = [];
+        lobby.logSeq = 0;
         emitLobbyState(io, lobbyId, lobby);
     });
 
@@ -583,6 +624,7 @@ io.on('connection', (socket) => {
                     socketId: socket.id,
                     abandon: true,
                 });
+                pushLog(lobby, 'system', `${player.username} abandonne la partie`);
             }
         }
         handleLeave(lobbyId, userId);

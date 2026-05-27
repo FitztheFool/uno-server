@@ -23,6 +23,8 @@ export function resetLobby(lobby: Lobby, options?: GameOptions): void {
     lobby.saidUno = new Set();
     lobby.winner = null;
     lobby.finalScores = null;
+    lobby.log = [];
+    lobby.logSeq = 0;
     lobby.kickedPlayers = [];
     lobby.expectedCount = null;
     lobby.teams = null;

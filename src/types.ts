@@ -1,3 +1,5 @@
+import type { GameLogEntry } from './gameLog';
+
 export interface Card {
     color: string;
     value: string;
@@ -66,4 +68,6 @@ export interface Lobby {
     preAssignedTeams: Map<string, number> | null;
     disconnectTimers: Map<string, ReturnType<typeof setTimeout>>;
     currentGameId?: string;
+    log: GameLogEntry[];
+    logSeq?: number;
 }
