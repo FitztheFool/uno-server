@@ -384,7 +384,7 @@ lobbySocket.on('uno:configure', ({ lobbyId, options, expectedCount, preAssignedT
 // ── Socket events ──────────────────────────────────────────────────────────────
 
 io.on('connection', (socket) => {
-    console.log('nouvelle connexion uno', socket.id);
+    console.log('[UNO] connexion', socket.id);
 
     socket.on('uno:join', ({ lobbyId }) => {
         const { userId, username } = socket.data;
@@ -682,7 +682,7 @@ io.on('connection', (socket) => {
 // ── Start ──────────────────────────────────────────────────────────────────────
 
 const PORT = process.env.PORT || 10001;
-server.listen(PORT, () => console.log('[UNO] realtime listening on', PORT));
+server.listen(PORT, () => console.log('[UNO] listening on port', PORT));
 
 const shutdown = () => {
     io.close(() => {
