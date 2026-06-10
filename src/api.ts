@@ -1,7 +1,8 @@
-import { saveAttempts } from '@kwizar/shared';
+import type { Server } from 'socket.io';
+import { saveAttemptsAndEmit } from '@kwizar/shared';
 import { FinalScore } from './types';
 
-export async function saveUnoAttempts(gameId: string, finalScores: FinalScore[]): Promise<void> {
+export async function saveUnoAttempts(io: Server, room: string, gameId: string, finalScores: FinalScore[]): Promise<void> {
     const vsBot = finalScores.some(e => e.userId?.startsWith('bot-'));
     const scores = finalScores.map(e => ({
         userId: e.userId,
@@ -12,5 +13,5 @@ export async function saveUnoAttempts(gameId: string, finalScores: FinalScore[])
         abandon: e.abandon ?? false,
         afk: e.afk ?? false,
     }));
-    await saveAttempts('UNO', gameId, scores, vsBot);
+    await saveAttemptsAndEmit(io, room, 'UNO', gameId, scores, vsBot);
 }

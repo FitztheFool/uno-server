@@ -63,7 +63,7 @@ function finishGame(lobbyId: string, lobby: Lobby, winnerId: string): void {
         winnerId: lobby.winner?.userId,
         winnerUsername: lobby.winner?.username,
     });
-    saveUnoAttempts(lobby.currentGameId ?? lobbyId, lobby.finalScores);
+    saveUnoAttempts(io, `uno:${lobbyId}`, lobby.currentGameId ?? lobbyId, lobby.finalScores);
 }
 
 function checkWinner(lobbyId: string, lobby: Lobby): boolean {
