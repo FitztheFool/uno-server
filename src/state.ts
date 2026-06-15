@@ -37,8 +37,8 @@ export function buildStateFor(lobby: Lobby, userId: string) {
         teammateHand,
         teammateId,
         myTeam: getTeamOf(lobby, userId),
-        turnEndsAt: lobby.turnStartedAt ? lobby.turnStartedAt + INACTIVITY_KICK_MS : null,
-        turnDuration: INACTIVITY_KICK_MS / 1000,
+        turnEndsAt: (lobby.turnStartedAt && lobby.turnSeconds !== 0) ? lobby.turnStartedAt + (lobby.turnSeconds ? lobby.turnSeconds * 1000 : INACTIVITY_KICK_MS) : null,
+        turnDuration: lobby.turnSeconds === 0 ? 0 : (lobby.turnSeconds ?? INACTIVITY_KICK_MS / 1000),
         log: (lobby.log ?? []).slice(-100),
     };
 }
@@ -68,7 +68,7 @@ export function buildSpectatorState(lobby: Lobby) {
         teammateHand: null,
         teammateId: null,
         myTeam: null,
-        turnEndsAt: lobby.turnStartedAt ? lobby.turnStartedAt + INACTIVITY_KICK_MS : null,
+        turnEndsAt: (lobby.turnStartedAt && lobby.turnSeconds !== 0) ? lobby.turnStartedAt + (lobby.turnSeconds ? lobby.turnSeconds * 1000 : INACTIVITY_KICK_MS) : null,
         log: (lobby.log ?? []).slice(-100),
     };
 }

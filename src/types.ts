@@ -64,6 +64,7 @@ export interface Lobby {
     inactivityWarning: ReturnType<typeof setTimeout> | null;
     inactivityKick: ReturnType<typeof setTimeout> | null;
     turnStartedAt: number | null;
+    turnSeconds?: number | null;
     teams: Map<string, number> | null;
     preAssignedTeams: Map<string, number> | null;
     disconnectTimers: Map<string, ReturnType<typeof setTimeout>>;

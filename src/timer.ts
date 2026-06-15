@@ -25,13 +25,18 @@ export function startInactivityTimer(io: Server, lobbyId: string, lobby: Lobby):
 
     lobby.turnStartedAt = Date.now();
 
+    // "temps pour jouer" du lobby : kick après lobby.turnSeconds s (0 = jamais ; null = défaut 60 s).
+    if (lobby.turnSeconds === 0) return;
+    const kickMs = lobby.turnSeconds ? lobby.turnSeconds * 1000 : INACTIVITY_KICK_MS;
+    const warnMs = Math.max(0, kickMs - INACTIVITY_WARNING_MS);
+
     lobby.inactivityWarning = setTimeout(() => {
         io.to(`uno:${lobbyId}`).emit('uno:inactivityWarning', {
             userId: currentPlayer.userId,
             username: currentPlayer.username,
-            secondsLeft: 30,
+            secondsLeft: Math.round((kickMs - warnMs) / 1000),
         });
-    }, INACTIVITY_WARNING_MS);
+    }, warnMs);
 
     lobby.inactivityKick = setTimeout(() => {
         const currentLobby = timerCallbacks.getLobby?.(lobbyId);
@@ -63,5 +68,5 @@ export function startInactivityTimer(io: Server, lobbyId: string, lobby: Lobby):
         });
 
         timerCallbacks.handleLeave?.(lobbyId, currentPlayer.userId, true);
-    }, INACTIVITY_KICK_MS);
+    }, kickMs);
 }

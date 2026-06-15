@@ -293,7 +293,7 @@ setupSocketAuth(io, new TextEncoder().encode((process.env.SOCKET_USER_SECRET ?? 
 
 const lobbySocket = connectToLobby('uno-server', 'uno');
 
-lobbySocket.on('uno:configure', ({ lobbyId, options, expectedCount, preAssignedTeams, botCount, bots, fresh }: any, ack?: () => void) => {
+lobbySocket.on('uno:configure', ({ lobbyId, options, expectedCount, preAssignedTeams, botCount, bots, fresh, turnSeconds }: any, ack?: () => void) => {
     if (!lobbyId) return;
     let lobby = lobbies.get(lobbyId);
 
@@ -352,6 +352,7 @@ lobbySocket.on('uno:configure', ({ lobbyId, options, expectedCount, preAssignedT
         if (teamsMap) lobby.preAssignedTeams = teamsMap;
         lobby.botCount = numBots;
     }
+    if (turnSeconds !== undefined) lobby.turnSeconds = turnSeconds;
 
     // Pré-ajouter les bots comme joueurs
     const existingBots = lobby.players.filter(p => p.userId.startsWith('bot-'));
