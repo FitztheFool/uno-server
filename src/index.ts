@@ -1,10 +1,8 @@
 // uno-server/src/index.ts
 import 'dotenv/config';
 import { randomUUID } from 'crypto';
-import express from 'express';
-import http from 'http';
 import { Server } from 'socket.io';
-import { setupSocketAuth, corsConfig, connectToLobby } from '@kwizar/shared';
+import { createGameServer } from '@kwizar/shared';
 
 import { Lobby, GameOptions } from './types';
 import {
@@ -17,7 +15,7 @@ import { clearInactivityTimer, startInactivityTimer, timerCallbacks } from './ti
 import { chooseBotColor, botChooseCard } from './bot';
 import { lobbies, resetLobby } from './rooms';
 import { saveUnoAttempts } from './api';
-import { pushLog } from './gameLog';
+import { pushLog } from '@kwizar/shared';
 import type { Card } from './types';
 
 const COLOR_FR: Record<string, string> = { red: 'Rouge', green: 'Vert', blue: 'Bleu', yellow: 'Jaune', wild: 'Joker' };
@@ -36,11 +34,8 @@ function uname(lobby: Lobby, userId: string): string {
 
 // ── Server setup ───────────────────────────────────────────────────────────────
 
-const app = express();
-app.get('/health', (_req, res) => { res.set('Access-Control-Allow-Origin', '*'); res.status(200).send('ok'); });
 
-const server = http.createServer(app);
-const io = new Server(server, { cors: corsConfig, maxHttpBufferSize: 1e5 });
+const { io, lobbySocket, listen } = createGameServer({ serviceName: 'uno-server', gameType: 'uno', defaultPort: 10001 });
 
 // ── Wire up timer callbacks ────────────────────────────────────────────────────
 
@@ -289,9 +284,7 @@ function botTakeTurn(lobbyId: string): void {
     triggerBotIfNeeded(lobbyId, lobby);
 }
 
-setupSocketAuth(io, new TextEncoder().encode((process.env.SOCKET_USER_SECRET ?? process.env.INTERNAL_API_KEY)!));
 
-const lobbySocket = connectToLobby('uno-server', 'uno');
 
 lobbySocket.on('uno:configure', ({ lobbyId, options, expectedCount, preAssignedTeams, botCount, bots, fresh, turnSeconds }: any, ack?: () => void) => {
     if (!lobbyId) return;
@@ -682,15 +675,5 @@ io.on('connection', (socket) => {
 
 // ── Start ──────────────────────────────────────────────────────────────────────
 
-const PORT = process.env.PORT || 10001;
-server.listen(PORT, () => console.log('[UNO] listening on port', PORT));
+listen();
 
-const shutdown = () => {
-    io.close(() => {
-        server.close(() => process.exit(0));
-    });
-    setTimeout(() => process.exit(1), 3000).unref();
-};
-
-process.on("SIGTERM", shutdown);
-process.on("SIGINT", shutdown);
